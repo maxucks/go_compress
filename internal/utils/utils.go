@@ -43,3 +43,19 @@ func IsNthBitSet(num byte, n int) bool {
 	var mask byte = 1 << n
 	return (num & mask) != 0
 }
+
+func BytesToInts(bytes []byte) []int {
+	ints := make([]int, 0, len(bytes))
+	for _, b := range bytes {
+		ints = append(ints, int(b))
+	}
+	return ints
+}
+
+func IntsToBytes(ints []int) []byte {
+	bytes := make([]byte, 0, len(ints))
+	for _, i := range ints {
+		bytes = append(bytes, byte(i))
+	}
+	return bytes
+}

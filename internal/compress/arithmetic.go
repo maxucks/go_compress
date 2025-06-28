@@ -12,27 +12,40 @@ import (
 
 // Arithmetic Coding Compressor
 type ArithmeticCompressor struct {
-	encoder          Encoder
-	decoderChunkSize int
+	cfg     *config
+	encoder Encoder
 }
 
-func NewArithmeticCompressor() *ArithmeticCompressor {
+func NewArithmeticCompressor(options ...ArithmeticCompressorOption) *ArithmeticCompressor {
+	cfg := defaultConfig()
+	cfg.apply(options)
+
 	return &ArithmeticCompressor{
-		encoder:          &ASCIIEncoder{},
-		decoderChunkSize: 100,
+		encoder: &ASCIIEncoder{},
+		cfg:     cfg,
 	}
 }
 
 func (c *ArithmeticCompressor) Compress(values []int) (*bytes.Buffer, error) {
+	fmt.Println("-- compression --")
+	return c.compress(values, c.cfg.compressMeta)
+}
+
+func (c *ArithmeticCompressor) Decompress(buf *bytes.Buffer) ([]int, error) {
+	fmt.Println("-- decompression --")
+	return c.decompress(buf, c.cfg.compressMeta)
+}
+
+func (c *ArithmeticCompressor) compress(values []int, compressMeta bool) (*bytes.Buffer, error) {
 	frmap := c.computeFrequencyMap(values)
 	pbmap := c.frequencyToProbabilityMap(frmap)
 	value := c.computeValue(values, pbmap)
 
-	return c.encode(value, len(values), frmap)
+	return c.encode(value, len(values), frmap, compressMeta)
 }
 
-func (c *ArithmeticCompressor) Decompress(buf *bytes.Buffer) ([]int, error) {
-	value, numsCount, frmap, err := c.decode(buf)
+func (c *ArithmeticCompressor) decompress(buf *bytes.Buffer, decompressMeta bool) ([]int, error) {
+	value, numsCount, frmap, err := c.decode(buf, decompressMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +85,6 @@ func (c *ArithmeticCompressor) frequencyToProbabilityMap(frmap frequencyMap) Pro
 
 	pbmap := make(ProbabilityMap, len(frmap))
 	r := 0.0
-	fmt.Println(keys)
 
 	for i, num := range keys {
 		frequency := frmap[num]
@@ -86,8 +98,6 @@ func (c *ArithmeticCompressor) frequencyToProbabilityMap(frmap frequencyMap) Pro
 		pbmap[num] = probability{pb, low, high}
 		r += pb
 	}
-
-	fmt.Println(pbmap)
 
 	return pbmap
 }
@@ -113,24 +123,43 @@ func (c *ArithmeticCompressor) computeValue(values []int, pbmap ProbabilityMap) 
 	return value
 }
 
-func (c *ArithmeticCompressor) encode(value float64, numsCount int, frmap frequencyMap) (*bytes.Buffer, error) {
+func (c *ArithmeticCompressor) encode(value float64, numsCount int, frmap frequencyMap, compressMeta bool) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 	if err := c.encodeMeta(&buf, numsCount, frmap); err != nil {
 		return nil, err
 	}
+
+	if compressMeta {
+		encodedMetaBytes := buf.Bytes()
+		buf.Reset()
+
+		if err := c.compressMeta(&buf, encodedMetaBytes); err != nil {
+			return nil, err
+		}
+	}
+
 	c.encodeValue(&buf, value)
 	return &buf, nil
 }
 
-func (c *ArithmeticCompressor) decode(buf *bytes.Buffer) (float64, int, frequencyMap, error) {
+func (c *ArithmeticCompressor) decode(buf *bytes.Buffer, decompressMeta bool) (float64, int, frequencyMap, error) {
+	if decompressMeta {
+		if err := c.decompressMeta(buf); err != nil {
+			return 0, 0, nil, err
+		}
+		fmt.Printf("buffer with decompressed meta = %v\n", buf.Bytes())
+	}
+
 	numsCount, frmap, err := c.decodeMeta(buf)
 	if err != nil {
 		return 0, 0, nil, err
 	}
+
 	value, err := c.decodeValue(buf)
 	if err != nil {
 		return 0, 0, nil, err
 	}
+
 	return value, numsCount, frmap, nil
 }
 
@@ -179,7 +208,7 @@ func (c *ArithmeticCompressor) encodeValue(buf *bytes.Buffer, value float64) {
 
 // func (c *ArithmeticCompressor) decodeValue(buf *bytes.Buffer) (float64, error) {
 // 	bytes := make([]byte, 0)
-// 	chunk := make([]byte, c.decoderChunkSize)
+// 	chunk := make([]byte, c.cfg.decoderChunkSize)
 
 // 	for {
 // 		n, err := buf.Read(chunk)
@@ -252,4 +281,64 @@ func (c *ArithmeticCompressor) decodeMeta(buf *bytes.Buffer) (int, frequencyMap,
 	}
 
 	return numsCount, frmap, nil
+}
+
+func (c *ArithmeticCompressor) compressMeta(buf *bytes.Buffer, bytes []byte) error {
+	fmt.Println("- meta compression -")
+	fmt.Printf("meta before compression = %v\n", bytes)
+	encodedMeta := utils.BytesToInts(bytes)
+
+	// meta should be compressed only once
+	compressedMetaBuf, err := c.compress(encodedMeta, false)
+	if err != nil {
+		return err
+	}
+	compressedMetaBytes := compressedMetaBuf.Bytes()
+
+	fmt.Printf("compressedMetaBytes count = %v\n", len(compressedMetaBytes))
+
+	c.encoder.EncodeInt(buf, len(compressedMetaBytes))
+	buf.Write(compressedMetaBytes)
+
+	return nil
+}
+
+func (c *ArithmeticCompressor) decompressMeta(buf *bytes.Buffer) error {
+	fmt.Println("- meta decompression -")
+	metaBytesCount, err := c.encoder.DecodeInt(buf)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("decoded metaBytesCount count = %v\n", metaBytesCount)
+
+	metaBytes := make([]byte, metaBytesCount)
+
+	n, err := buf.Read(metaBytes)
+	if err != nil {
+		return err
+	}
+	if n != metaBytesCount {
+		return fmt.Errorf("failed to decompress meta: read %d meta bytes, but expected %d", n, metaBytesCount)
+	}
+
+	var metaBuffer bytes.Buffer
+	metaBuffer.Write(metaBytes)
+
+	// meta should be decompressed only once
+	encodedMeta, err := c.decompress(&metaBuffer, false)
+	if err != nil {
+		return err
+	}
+
+	encodedMetaBytes := utils.IntsToBytes(encodedMeta)
+
+	// Puts meta bytes to the biginning of the buffer
+	restBytes := buf.Bytes()
+	buf.Reset()
+
+	buf.Write(encodedMetaBytes)
+	buf.Write(restBytes)
+
+	return nil
 }

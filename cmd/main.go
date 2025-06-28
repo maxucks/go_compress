@@ -37,18 +37,22 @@ func slicesEqual(a, b []int) bool {
 // TODO: with small numsCount everything works fine, but with large it glitches
 func main() {
 	const maxValue = 300
-	const numsCount = 20
+	const numsCount = 10000
 
 	nums := utils.SeedNumbers(numsCount, maxValue)
 	sort.Ints(nums)
 
-	var compressor compress.Compressor = compress.NewArithmeticCompressor()
+	options := []compress.ArithmeticCompressorOption{
+		compress.WithMetaCompression,
+	}
+
+	var compressor compress.Compressor = compress.NewArithmeticCompressor(options...)
 	buf, err := compressor.Compress(nums)
 	if err != nil {
 		log.Fatalf("failed to compress: %s", err)
 	}
 
-	// compressed := buf.Bytes()
+	compressed := buf.Bytes()
 
 	decompressedNums, err := compressor.Decompress(buf)
 	if err != nil {
@@ -60,10 +64,10 @@ func main() {
 	fmt.Printf("nums = %v\n", nums)
 	fmt.Printf("deco = %v\n", decompressedNums)
 
-	// rawbytes, _ := serializeInts(nums)
-	// fmt.Printf("size without compression = %vb\n", len(rawbytes))
-	// fmt.Printf("size after compression = %vb\n", len(compressed))
-	// fmt.Printf("compression = %v%%\n", 100-float64(len(rawbytes))/float64(len(compressed)))
+	rawbytes, _ := serializeInts(nums)
+	fmt.Printf("size without compression = %vb\n", len(rawbytes))
+	fmt.Printf("size after compression = %vb\n", len(compressed))
+	fmt.Printf("compression = %v%%\n", 100-100/float64(len(rawbytes))*float64(len(compressed)))
 
 	if !slicesEqual(nums, decompressedNums) {
 		log.Fatal("slices are not equal")
