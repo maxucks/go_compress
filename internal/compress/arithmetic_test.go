@@ -11,7 +11,7 @@ func TestMetaEncodeOK(t *testing.T) {
 	compressor := NewArithmeticCompressor()
 
 	numsCount := 8
-	frmap := map[int]int{1: 1, 2: 2}
+	frmap := frequencyMap{1: 1, 2: 2}
 
 	if err := compressor.encodeMeta(&buf, numsCount, frmap); err != nil {
 		t.Fatalf("unexpected error '%s'", err)
