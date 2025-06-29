@@ -1,14 +1,14 @@
 package compress
 
 type config struct {
-	// decoderChunkSize int
 	compressMeta bool
+	precision    uint
 }
 
 func defaultConfig() *config {
 	return &config{
-		// decoderChunkSize: 100,
 		compressMeta: false,
+		precision:    256,
 	}
 }
 
@@ -22,4 +22,10 @@ type ArithmeticCompressorOption func(*config)
 
 func WithMetaCompression(cfg *config) {
 	cfg.compressMeta = true
+}
+
+func WithPrecision(precision uint) ArithmeticCompressorOption {
+	return func(cfg *config) {
+		cfg.precision = precision
+	}
 }

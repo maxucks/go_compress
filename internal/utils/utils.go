@@ -24,6 +24,21 @@ func SeedNumbers(count, maxValue int) []int {
 	return input
 }
 
+func SeedEqually(count, maxValue int) []int {
+	input := make([]int, 0, count)
+	n := 1
+
+	for range count {
+		input = append(input, n)
+		n++
+		if n > maxValue {
+			n = 1
+		}
+	}
+
+	return input
+}
+
 // TODO: optimize
 func RoundToPrecision(val, minValue, maxValue float64) float64 {
 	epsilon := math.Abs(maxValue - minValue)
@@ -64,4 +79,16 @@ func IntsToBytes(ints []int) []byte {
 		bytes = append(bytes, byte(i))
 	}
 	return bytes
+}
+
+func SlicesEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

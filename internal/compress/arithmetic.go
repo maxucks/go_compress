@@ -2,12 +2,16 @@ package compress
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
+	"math/big"
 	"sort"
 
 	"github.com/maxucks/go_compress.git/internal/utils"
+)
+
+var (
+	MIN_RANGE = float64(0.0)
+	MAX_RANGE = float64(1.0)
 )
 
 // Arithmetic Coding Compressor
@@ -53,17 +57,16 @@ func (c *ArithmeticCompressor) decompress(buf *bytes.Buffer, decompressMeta bool
 	nums := make([]int, 0, numsCount)
 	pbmap := c.frequencyToProbabilityMap(frmap)
 
-	low, high := 0.0, 1.0
+	low, high := c.float(MIN_RANGE), c.float(MAX_RANGE)
 
 	for i := 0; i < numsCount; i++ {
-		r := high - low
-		for num, pb := range pbmap {
-			// Narrowing the range
-			l := low + r*pb.low
-			h := low + r*pb.high
+		r := c.emptyFloat().Sub(high, low)
 
-			if value >= l && value < h {
-				// fmt.Printf("search for %v in [%v; %v] => %v\n", value, l, h, num)
+		for num, pb := range pbmap {
+			l := c.emptyFloat().Add(low, c.emptyFloat().Mul(r, pb.low))
+			h := c.emptyFloat().Add(low, c.emptyFloat().Mul(r, pb.high))
+
+			if value.Cmp(l) >= 0 && value.Cmp(h) < 0 {
 				nums = append(nums, num)
 				low, high = l, h
 				break
@@ -75,20 +78,20 @@ func (c *ArithmeticCompressor) decompress(buf *bytes.Buffer, decompressMeta bool
 }
 
 // Computes the frequencies of the unique numbers of the source array
-func (c *ArithmeticCompressor) computeFrequencyMap(nums []int) frequencyMap {
+func (c *ArithmeticCompressor) computeFrequencyMap(bytes []int) frequencyMap {
 	fr := make(frequencyMap)
-	for _, num := range nums {
-		fr[num]++
+	for _, b := range bytes {
+		fr[b]++
 	}
 	return fr
 }
 
 func (c *ArithmeticCompressor) frequencyToProbabilityMap(frmap frequencyMap) ProbabilityMap {
 	keys := make([]int, 0, len(frmap))
-	total := 0
+	total := float64(0)
 
 	for k, p := range frmap {
-		total += p
+		total += float64(p)
 		keys = append(keys, k)
 	}
 
@@ -97,48 +100,45 @@ func (c *ArithmeticCompressor) frequencyToProbabilityMap(frmap frequencyMap) Pro
 	sort.Ints(keys)
 
 	pbmap := make(ProbabilityMap, len(frmap))
-	r := 0.0
+	r := c.float(MIN_RANGE)
 
 	for i, num := range keys {
-		frequency := frmap[num]
-		pb := float64(frequency) / float64(total)
+		fr := float64(frmap[num])
+		pb := c.emptyFloat().Quo(c.float(fr), c.float(total))
 
-		low, high := r, r+pb
+		low, high := c.emptyFloat().Copy(r), c.emptyFloat().Add(r, pb)
 		if i == len(keys)-1 {
-			high = 1.0
+			high = c.float(MAX_RANGE)
 		}
 
-		pbmap[num] = probability{pb, low, high}
-		r += pb
+		pbmap[num] = probability{low, high}
+		r.Add(r, pb)
 	}
-
-	fmt.Println(pbmap)
 
 	return pbmap
 }
 
-func (c *ArithmeticCompressor) computeValue(values []int, pbmap ProbabilityMap) float64 {
-	low, high := 0.0, 1.0
+func (c *ArithmeticCompressor) computeValue(nums []int, pbmap ProbabilityMap) *big.Float {
+	low, high := c.float(MIN_RANGE), c.float(MAX_RANGE)
 
-	for _, val := range values {
-		pb := pbmap[val]
-		r := high - low
+	for _, num := range nums {
+		pb := pbmap[num]
+		r := c.emptyFloat().Sub(high, low)
 
-		// Narrowing the range
-		l := low + r*pb.low
-		h := low + r*pb.high
+		l := c.emptyFloat().Add(low, c.emptyFloat().Mul(r, pb.low))
+		h := c.emptyFloat().Add(low, c.emptyFloat().Mul(r, pb.high))
 		low, high = l, h
+
+		// fmt.Printf("%v in [%v; %v]\n", num, low, high)
 	}
 
-	// As any of the (low; high] is ok then pick one in the middle
-	value := (low + high) / 2.0
-	// Reducing count of decimal digits to achieve better compression
-	value = utils.RoundToPrecision(value, low, high)
+	value := c.emptyFloat().Add(low, high)
+	value.Quo(value, c.float(2))
 
 	return value
 }
 
-func (c *ArithmeticCompressor) encode(value float64, numsCount int, frmap frequencyMap, compressMeta bool) (*bytes.Buffer, error) {
+func (c *ArithmeticCompressor) encode(value *big.Float, numsCount int, frmap frequencyMap, compressMeta bool) (*bytes.Buffer, error) {
 	var buf bytes.Buffer
 	if err := c.encodeMeta(&buf, numsCount, frmap); err != nil {
 		return nil, err
@@ -157,41 +157,54 @@ func (c *ArithmeticCompressor) encode(value float64, numsCount int, frmap freque
 	return &buf, nil
 }
 
-func (c *ArithmeticCompressor) decode(buf *bytes.Buffer, decompressMeta bool) (float64, int, frequencyMap, error) {
+func (c *ArithmeticCompressor) decode(buf *bytes.Buffer, decompressMeta bool) (*big.Float, int, frequencyMap, error) {
 	if decompressMeta {
 		if err := c.decompressMeta(buf); err != nil {
-			return 0, 0, nil, err
+			return nil, 0, nil, err
 		}
 		fmt.Printf("buffer with decompressed meta = %v\n", buf.Bytes())
 	}
 
 	numsCount, frmap, err := c.decodeMeta(buf)
 	if err != nil {
-		return 0, 0, nil, err
+		return nil, 0, nil, err
 	}
 
 	value, err := c.decodeValue(buf)
 	if err != nil {
-		return 0, 0, nil, err
+		return nil, 0, nil, err
 	}
 
 	return value, numsCount, frmap, nil
 }
 
-// Parses each decimal part's digit of float64 and converts it to the slice of ASCII codes
-// For instance 0.01263789455 will be converted to [0 126 37 89 45 5]
-func (c *ArithmeticCompressor) encodeValue(buf *bytes.Buffer, value float64) {
-	bits := math.Float64bits(value)
-	binary.Write(buf, binary.LittleEndian, bits)
+func (c *ArithmeticCompressor) encodeValue(buf *bytes.Buffer, value *big.Float) error {
+	bytes, err := value.GobEncode()
+	if err != nil {
+		return err
+	}
+	c.encoder.EncodeInt(buf, len(bytes))
+	_, err = buf.Write(bytes)
+	return err
 }
 
-func (c *ArithmeticCompressor) decodeValue(buf *bytes.Buffer) (float64, error) {
-	var bits uint64
-	err := binary.Read(buf, binary.LittleEndian, &bits)
+func (c *ArithmeticCompressor) decodeValue(buf *bytes.Buffer) (*big.Float, error) {
+	valueBytesCount, err := c.encoder.DecodeInt(buf)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return math.Float64frombits(bits), nil
+
+	bytes := make([]byte, valueBytesCount)
+	if _, err := buf.Read(bytes); err != nil {
+		return nil, err
+	}
+
+	value := c.emptyFloat()
+	if err := value.GobDecode(bytes); err != nil {
+		return nil, err
+	}
+
+	return value, nil
 }
 
 // Serializes metadata: length of source array and frequency map
@@ -200,7 +213,7 @@ func (c *ArithmeticCompressor) encodeMeta(buf *bytes.Buffer, numsCount int, frma
 	toEncode = append(toEncode, numsCount, len(frmap))
 
 	for num, fr := range frmap {
-		toEncode = append(toEncode, num, fr)
+		toEncode = append(toEncode, int(num), fr)
 	}
 
 	for _, num := range toEncode {
@@ -240,6 +253,7 @@ func (c *ArithmeticCompressor) decodeMeta(buf *bytes.Buffer) (int, frequencyMap,
 	return numsCount, frmap, nil
 }
 
+// TODO: remove
 func (c *ArithmeticCompressor) compressMeta(buf *bytes.Buffer, bytes []byte) error {
 	fmt.Println("- meta compression -")
 	fmt.Printf("meta before compression = %v\n", bytes)
@@ -260,6 +274,7 @@ func (c *ArithmeticCompressor) compressMeta(buf *bytes.Buffer, bytes []byte) err
 	return nil
 }
 
+// TODO: remove
 func (c *ArithmeticCompressor) decompressMeta(buf *bytes.Buffer) error {
 	fmt.Println("- meta decompression -")
 	metaBytesCount, err := c.encoder.DecodeInt(buf)
@@ -298,4 +313,12 @@ func (c *ArithmeticCompressor) decompressMeta(buf *bytes.Buffer) error {
 	buf.Write(restBytes)
 
 	return nil
+}
+
+func (c *ArithmeticCompressor) float(x float64) *big.Float {
+	return new(big.Float).SetPrec(c.cfg.precision).SetFloat64(x)
+}
+
+func (c *ArithmeticCompressor) emptyFloat() *big.Float {
+	return new(big.Float).SetPrec(c.cfg.precision)
 }
