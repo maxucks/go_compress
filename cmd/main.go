@@ -36,8 +36,8 @@ func slicesEqual(a, b []int) bool {
 
 // TODO: with small numsCount everything works fine, but with large it glitches
 func main() {
-	const maxValue = 300
-	const numsCount = 4
+	const maxValue = 10
+	const numsCount = 2000
 
 	nums := utils.SeedNumbers(numsCount, maxValue)
 	sort.Ints(nums)
@@ -61,8 +61,8 @@ func main() {
 
 	sort.Ints(decompressedNums)
 
-	fmt.Printf("nums = %v\n", nums)
-	fmt.Printf("deco = %v\n", decompressedNums)
+	// fmt.Printf("nums = %v\n", nums)
+	// fmt.Printf("deco = %v\n", decompressedNums)
 
 	rawbytes, _ := serializeInts(nums)
 	fmt.Printf("size without compression = %vb\n", len(rawbytes))

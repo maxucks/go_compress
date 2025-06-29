@@ -3,7 +3,6 @@ package compress
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -54,14 +53,22 @@ func (c *ArithmeticCompressor) decompress(buf *bytes.Buffer, decompressMeta bool
 	nums := make([]int, 0, numsCount)
 	pbmap := c.frequencyToProbabilityMap(frmap)
 
+	low, high := 0.0, 1.0
+
 	for i := 0; i < numsCount; i++ {
-		num, pb := pbmap.MatchRange(value)
-		if num == -1 {
-			return nil, errors.New("failed to decompress: value's probability range not found")
+		r := high - low
+		for num, pb := range pbmap {
+			// Narrowing the range
+			l := low + r*pb.low
+			h := low + r*pb.high
+
+			if value >= l && value < h {
+				// fmt.Printf("search for %v in [%v; %v] => %v\n", value, l, h, num)
+				nums = append(nums, num)
+				low, high = l, h
+				break
+			}
 		}
-		// Scale the value relatively to the found value's range
-		value = (value - pb.low) / (pb.high - pb.low)
-		nums = append(nums, num)
 	}
 
 	return nums, nil
@@ -105,6 +112,8 @@ func (c *ArithmeticCompressor) frequencyToProbabilityMap(frmap frequencyMap) Pro
 		r += pb
 	}
 
+	fmt.Println(pbmap)
+
 	return pbmap
 }
 
@@ -113,11 +122,12 @@ func (c *ArithmeticCompressor) computeValue(values []int, pbmap ProbabilityMap) 
 
 	for _, val := range values {
 		pb := pbmap[val]
-		diff := high - low
+		r := high - low
 
 		// Narrowing the range
-		low = low + diff*(pb.low)
-		high = low + diff*(pb.high)
+		l := low + r*pb.low
+		h := low + r*pb.high
+		low, high = l, h
 	}
 
 	// As any of the (low; high] is ok then pick one in the middle
@@ -175,64 +185,6 @@ func (c *ArithmeticCompressor) encodeValue(buf *bytes.Buffer, value float64) {
 	binary.Write(buf, binary.LittleEndian, bits)
 }
 
-// func (c *ArithmeticCompressor) encodeValue(buf *bytes.Buffer, value float64) {
-// 	stringValue := fmt.Sprintf("%v", value)
-// 	decimalDigits := strings.Split(stringValue, ".")[1]
-
-// 	var digitSequence string
-
-// 	for i, digit := range decimalDigits {
-// 		stringDigit := string(digit)
-
-// 		if digitSequence == "0" {
-// 			buf.WriteByte(utils.ToASCII(digitSequence))
-// 			digitSequence = ""
-// 		}
-
-// 		currSequence := digitSequence + stringDigit
-// 		currValue, _ := strconv.Atoi(currSequence)
-
-// 		isLastDigit := i == len(decimalDigits)-1
-
-// 		if currValue > 127 {
-// 			buf.WriteByte(utils.ToASCII(digitSequence))
-// 			if isLastDigit {
-// 				buf.WriteByte(utils.ToASCII(stringDigit))
-// 			} else {
-// 				digitSequence = stringDigit
-// 			}
-// 		} else {
-// 			if isLastDigit {
-// 				buf.WriteByte(utils.ToASCII(currSequence))
-// 			} else {
-// 				digitSequence = currSequence
-// 			}
-// 		}
-// 	}
-// }
-
-// func (c *ArithmeticCompressor) decodeValue(buf *bytes.Buffer) (float64, error) {
-// 	bytes := make([]byte, 0)
-// 	chunk := make([]byte, c.cfg.decoderChunkSize)
-
-// 	for {
-// 		n, err := buf.Read(chunk)
-// 		if err == io.EOF {
-// 			break
-// 		}
-// 		if err != nil {
-// 			return 0, err
-// 		}
-// 		bytes = append(bytes, chunk[:n]...)
-// 	}
-
-//		stringValue := "0."
-//		for _, b := range bytes {
-//			stringValue += fmt.Sprintf("%d", int(b))
-//		}
-//		value, _ := strconv.ParseFloat(stringValue, 64)
-//		return value, nil
-//	}
 func (c *ArithmeticCompressor) decodeValue(buf *bytes.Buffer) (float64, error) {
 	var bits uint64
 	err := binary.Read(buf, binary.LittleEndian, &bits)
