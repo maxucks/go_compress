@@ -37,13 +37,13 @@ func slicesEqual(a, b []int) bool {
 // TODO: with small numsCount everything works fine, but with large it glitches
 func main() {
 	const maxValue = 300
-	const numsCount = 10000
+	const numsCount = 4
 
 	nums := utils.SeedNumbers(numsCount, maxValue)
 	sort.Ints(nums)
 
 	options := []compress.ArithmeticCompressorOption{
-		compress.WithMetaCompression,
+		// compress.WithMetaCompression,
 	}
 
 	var compressor compress.Compressor = compress.NewArithmeticCompressor(options...)

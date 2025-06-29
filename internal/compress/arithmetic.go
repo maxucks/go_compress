@@ -3,6 +3,7 @@ package compress
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -53,9 +54,12 @@ func (c *ArithmeticCompressor) decompress(buf *bytes.Buffer, decompressMeta bool
 	nums := make([]int, 0, numsCount)
 	pbmap := c.frequencyToProbabilityMap(frmap)
 
-	// for range numsCount {
 	for i := 0; i < numsCount; i++ {
-		num, pb := pbmap.Find(value)
+		num, pb := pbmap.MatchRange(value)
+		if num == -1 {
+			return nil, errors.New("failed to decompress: value's probability range not found")
+		}
+		// Scale the value relatively to the found value's range
 		value = (value - pb.low) / (pb.high - pb.low)
 		nums = append(nums, num)
 	}
@@ -63,7 +67,7 @@ func (c *ArithmeticCompressor) decompress(buf *bytes.Buffer, decompressMeta bool
 	return nums, nil
 }
 
-// Computes the frequencies of the unique numbers in the source array
+// Computes the frequencies of the unique numbers of the source array
 func (c *ArithmeticCompressor) computeFrequencyMap(nums []int) frequencyMap {
 	fr := make(frequencyMap)
 	for _, num := range nums {
@@ -72,15 +76,17 @@ func (c *ArithmeticCompressor) computeFrequencyMap(nums []int) frequencyMap {
 	return fr
 }
 
-// Order matters. If iteration order during computing probability map differs at encode
-// and decode stages it leads to completely different ranges which will break decoding
 func (c *ArithmeticCompressor) frequencyToProbabilityMap(frmap frequencyMap) ProbabilityMap {
 	keys := make([]int, 0, len(frmap))
 	total := 0
+
 	for k, p := range frmap {
 		total += p
 		keys = append(keys, k)
 	}
+
+	// Order matters. If iteration order during computing probability map differs at encode
+	// and decode stages it leads to completely different ranges breaking decoding
 	sort.Ints(keys)
 
 	pbmap := make(ProbabilityMap, len(frmap))
@@ -107,17 +113,16 @@ func (c *ArithmeticCompressor) computeValue(values []int, pbmap ProbabilityMap) 
 
 	for _, val := range values {
 		pb := pbmap[val]
-
 		diff := high - low
-		high = low + diff*pb.high
-		low = low + diff*pb.low
+
+		// Narrowing the range
+		low = low + diff*(pb.low)
+		high = low + diff*(pb.high)
 	}
 
 	// As any of the (low; high] is ok then pick one in the middle
 	value := (low + high) / 2.0
-
-	// TODO: optimize
-	// Reduce count of decimal digits to achieve better compression
+	// Reducing count of decimal digits to achieve better compression
 	value = utils.RoundToPrecision(value, low, high)
 
 	return value

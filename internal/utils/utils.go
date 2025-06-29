@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 	"strconv"
+	"time"
 )
 
 type Frequency struct {
@@ -12,13 +13,18 @@ type Frequency struct {
 }
 
 func SeedNumbers(count, maxValue int) []int {
+	src := rand.NewSource(time.Now().UnixNano())
+	rnd := rand.New(src)
+
 	input := make([]int, 0, count)
 	for range count {
-		input = append(input, rand.Intn(maxValue-1)+1)
+		input = append(input, rnd.Intn(maxValue-1)+1)
 	}
+
 	return input
 }
 
+// TODO: optimize
 func RoundToPrecision(val, minValue, maxValue float64) float64 {
 	epsilon := math.Abs(maxValue - minValue)
 	if epsilon == 0 {
