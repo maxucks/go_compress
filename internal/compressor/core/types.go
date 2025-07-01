@@ -1,10 +1,10 @@
-package compress
+package core
 
 import "bytes"
 
 type Compressor interface {
-	Compress(values []int) (*bytes.Buffer, error)
-	Decompress(buf *bytes.Buffer) ([]int, error)
+	Compress(values []byte) (*bytes.Buffer, error)
+	Decompress(buf *bytes.Buffer) ([]byte, error)
 }
 
 type Encoder interface {

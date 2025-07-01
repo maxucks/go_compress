@@ -1,17 +1,19 @@
-package compress
+package encoder
 
 import (
 	"bytes"
 	"errors"
 
-	"github.com/maxucks/go_compress.git/internal/utils"
+	"github.com/maxucks/go_compress.git/internal/compressor/utils"
 )
 
 const ASCII_MAX_VAL = 127
 
+// This encoder is my own packing bits implementation
+// Packs any number (up to 16256) representing as either 1 or 2 bytes of ASCII code into buffer
+// It's pretty restricted and I used it for testing
 type ASCIIEncoder struct{}
 
-// Packs any number (up to 16256) representing as either 1 or 2 bytes of ASCII code into buffer
 func (s *ASCIIEncoder) EncodeInt(buf *bytes.Buffer, num int) error {
 	chunksCount := num / ASCII_MAX_VAL
 	if chunksCount > ASCII_MAX_VAL {
@@ -29,7 +31,6 @@ func (s *ASCIIEncoder) EncodeInt(buf *bytes.Buffer, num int) error {
 	return nil
 }
 
-// Unpacks first n bytes representing an integer
 func (s *ASCIIEncoder) DecodeInt(buf *bytes.Buffer) (int, error) {
 	var num, chunksCount int
 

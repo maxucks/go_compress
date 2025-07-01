@@ -1,14 +1,14 @@
-package compress
+package arithmetic
 
 type config struct {
-	compressMeta bool
-	precision    uint
+	precision uint
+	chunkSize int
 }
 
 func defaultConfig() *config {
 	return &config{
-		compressMeta: false,
-		precision:    256,
+		precision: 166,
+		chunkSize: 50,
 	}
 }
 
@@ -20,12 +20,14 @@ func (cfg *config) apply(options []ArithmeticCompressorOption) {
 
 type ArithmeticCompressorOption func(*config)
 
-func WithMetaCompression(cfg *config) {
-	cfg.compressMeta = true
-}
-
 func WithPrecision(precision uint) ArithmeticCompressorOption {
 	return func(cfg *config) {
 		cfg.precision = precision
+	}
+}
+
+func WithChunkSize(chunkSize uint) ArithmeticCompressorOption {
+	return func(cfg *config) {
+		cfg.chunkSize = int(chunkSize)
 	}
 }
