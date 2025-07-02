@@ -2,17 +2,22 @@ package haffman
 
 import (
 	"bytes"
-	"encoding/gob"
-	"fmt"
+	"errors"
 	"sort"
 
+	"github.com/maxucks/go_compress.git/internal/compressor/core"
+	"github.com/maxucks/go_compress.git/internal/compressor/encoder"
 	"github.com/maxucks/go_compress.git/internal/pkg/collections"
 )
 
-type HuffmanCompressor struct{}
+type HuffmanCompressor struct {
+	encoder core.Encoder
+}
 
-func NewHuffmanCompressor() *HuffmanCompressor {
-	return &HuffmanCompressor{}
+func NewCompressor() *HuffmanCompressor {
+	return &HuffmanCompressor{
+		encoder: &encoder.CompactVLQ{},
+	}
 }
 
 func (c *HuffmanCompressor) Compress(data []byte) (*bytes.Buffer, error) {
@@ -22,10 +27,14 @@ func (c *HuffmanCompressor) Compress(data []byte) (*bytes.Buffer, error) {
 
 	var buf bytes.Buffer
 
-	if err := c.encodeMeta(&buf, data, frmap, codes); err != nil {
-		return nil, err
+	bitLen := 0
+	for _, b := range data {
+		bitLen += len(codes[b])
 	}
 
+	if err := c.encodeMeta(&buf, frmap, bitLen); err != nil {
+		return nil, err
+	}
 	err := c.encodeData(&buf, data, codes)
 	return &buf, err
 }
@@ -35,18 +44,8 @@ func (c *HuffmanCompressor) Decompress(buf *bytes.Buffer) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	root := c.buildTree(frmap)
-
-	encoded := make([]byte, buf.Len())
-	if _, err := buf.Read(encoded); err != nil {
-		return nil, err
-	}
-	if len(encoded)*8 < bitLen {
-		return nil, fmt.Errorf("not enough encoded bits: have %d, need %d", len(encoded)*8, bitLen)
-	}
-
-	return c.decodeData(encoded, root, bitLen), nil
+	return c.decodeData(buf, root, bitLen)
 }
 
 func (c *HuffmanCompressor) computeFrequencyMap(data []byte) frequencyMap {
@@ -116,23 +115,9 @@ func (c *HuffmanCompressor) generateCodesRec(node *node, prefix string, codes ma
 	c.generateCodesRec(node.right, prefix+"1", codes)
 }
 
-func (c *HuffmanCompressor) encodeMeta(buf *bytes.Buffer, data []byte, frmap frequencyMap, codes map[byte]string) error {
-	encoder := gob.NewEncoder(buf)
-
-	if err := encoder.Encode(frmap); err != nil {
-		return err
-	}
-
-	bitLen := 0
-	for _, b := range data {
-		bitLen += len(codes[b])
-	}
-
-	return encoder.Encode(bitLen)
-}
-
 func (c *HuffmanCompressor) encodeData(buf *bytes.Buffer, data []byte, codes map[byte]string) error {
 	var bitStr string
+
 	for _, b := range data {
 		bitStr += codes[b]
 	}
@@ -152,6 +137,7 @@ func (c *HuffmanCompressor) encodeData(buf *bytes.Buffer, data []byte, codes map
 			bitCount = 0
 		}
 	}
+
 	if bitCount > 0 {
 		byteVal <<= (8 - bitCount)
 		encoded = append(encoded, byteVal)
@@ -161,14 +147,22 @@ func (c *HuffmanCompressor) encodeData(buf *bytes.Buffer, data []byte, codes map
 	return err
 }
 
-func (c *HuffmanCompressor) decodeData(encoded []byte, root *node, bitLen int) []byte {
-	var result []byte
+func (c *HuffmanCompressor) decodeData(buf *bytes.Buffer, root *node, bitLen int) ([]byte, error) {
+	encodedData := make([]byte, buf.Len())
+	if _, err := buf.Read(encodedData); err != nil {
+		return nil, err
+	}
+	if len(encodedData)*8 < bitLen {
+		return nil, errors.New("not enough encoded bits")
+	}
+
+	var data []byte
 	node := root
 
 	for i := 0; i < bitLen; i++ {
 		bytePos := i / 8
 		bitPos := 7 - (i % 8)
-		bit := (encoded[bytePos] >> bitPos) & 1
+		bit := (encodedData[bytePos] >> bitPos) & 1
 
 		if bit == 0 {
 			node = node.left
@@ -177,23 +171,53 @@ func (c *HuffmanCompressor) decodeData(encoded []byte, root *node, bitLen int) [
 		}
 
 		if node.left == nil && node.right == nil {
-			result = append(result, node.data)
+			data = append(data, node.data)
 			node = root
 		}
 	}
-	return result
+
+	return data, nil
+}
+
+func (c *HuffmanCompressor) encodeMeta(buf *bytes.Buffer, frmap frequencyMap, bitLen int) error {
+	if err := c.encoder.EncodeInt(buf, len(frmap)); err != nil {
+		return err
+	}
+
+	for sym, fr := range frmap {
+		if err := c.encoder.EncodeInt(buf, int(sym)); err != nil {
+			return err
+		}
+		if err := c.encoder.EncodeInt(buf, fr); err != nil {
+			return err
+		}
+	}
+
+	return c.encoder.EncodeInt(buf, bitLen)
 }
 
 func (c *HuffmanCompressor) decodeMeta(buf *bytes.Buffer) (frequencyMap, int, error) {
-	decoder := gob.NewDecoder(buf)
-
-	frmap := make(frequencyMap)
-	if err := decoder.Decode(&frmap); err != nil {
+	frmapLen, err := c.encoder.DecodeInt(buf)
+	if err != nil {
 		return nil, 0, err
 	}
 
-	var bitLen int
-	if err := decoder.Decode(&bitLen); err != nil {
+	frmap := make(frequencyMap, frmapLen)
+
+	for range frmapLen {
+		sym, err := c.encoder.DecodeInt(buf)
+		if err != nil {
+			return nil, 0, err
+		}
+		fr, err := c.encoder.DecodeInt(buf)
+		if err != nil {
+			return nil, 0, err
+		}
+		frmap[byte(sym)] = fr
+	}
+
+	bitLen, err := c.encoder.DecodeInt(buf)
+	if err != nil {
 		return nil, 0, err
 	}
 
