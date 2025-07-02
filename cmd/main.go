@@ -1,189 +1,116 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
-	"math"
-	"os"
 	"sort"
 
+	"github.com/maxucks/go_compress.git/internal/compressor/core"
 	"github.com/maxucks/go_compress.git/internal/compressor/encoder"
+	"github.com/maxucks/go_compress.git/internal/compressor/haffman"
+	"github.com/maxucks/go_compress.git/internal/compressor/lz77"
 	"github.com/maxucks/go_compress.git/internal/compressor/mixed"
-	"github.com/maxucks/go_compress.git/internal/compressor/utils"
+	"github.com/maxucks/go_compress.git/internal/seed"
 )
 
-// func ComputeOptimalChunkSize(inputSize uint, avgProbability float64, maxPrecisionBits uint) (uint, error) {
-// 	if avgProbability <= 0 || avgProbability >= 1 {
-// 		return 0, errors.New("avgProbability must be in (0, 1)")
-// 	}
+func Run(testsCount int, seedFn seed.SeedFn, sortInput bool) ([]float64, error) {
+	avgCompression := []float64{0, 0, 0}
 
-// 	bitsPerSymbol := math.Log2(1.0 / avgProbability)
-
-// 	maxChunkSize := uint(float64(maxPrecisionBits) / bitsPerSymbol)
-// 	if maxChunkSize > inputSize {
-// 		maxChunkSize = inputSize
-// 	}
-
-// 	return maxChunkSize, nil
-// }
-
-func SlicesEqual[T comparable](a, b []T) bool {
-	if len(a) != len(b) {
-		return false
+	compressors := []core.Compressor{
+		haffman.NewCompressor(),
+		lz77.NewCompressor(),
+		mixed.NewCompressor(),
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+
+	for range testsCount {
+		input := seedFn()
+		if sortInput {
+			sort.Ints(input)
+		}
+
+		for i, cmp := range compressors {
+			compression, err := Compress(cmp, input)
+			if err != nil {
+				return nil, err
+			}
+			avgCompression[i] += compression
 		}
 	}
-	return true
-}
 
-// TODO: move to default compressor
-func serializeInts(ints []int) ([]byte, error) {
-	encoder := encoder.VLQEncoder{}
-	var buf bytes.Buffer
-	for _, num := range ints {
-		err := encoder.EncodeInt(&buf, num)
-		// err := binary.Write(&buf, binary.BigEndian, uint16(num))
-		if err != nil {
-			return nil, err
-		}
-	}
-	return buf.Bytes(), nil
-}
-
-// TODO: move to default compressor
-func deserializeInts(data []byte) ([]int, error) {
-	encoder := encoder.VLQEncoder{}
-
-	ints := make([]int, 0)
-	buf := bytes.NewBuffer(data)
-
-	for {
-		num, err := encoder.DecodeInt(buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		ints = append(ints, int(num))
+	for i := range len(compressors) {
+		avgCompression[i] /= float64(testsCount)
 	}
 
-	return ints, nil
+	return avgCompression, nil
 }
 
-func PrintTable(inputSize int, uniqueSymbolsCount uint) {
-	bitsPerSymbol := math.Log2(float64(uniqueSymbolsCount))
+func Compress(compressor core.Compressor, input []int) (float64, error) {
+	encoder := encoder.NewIntsEncoder()
+	data, _ := encoder.Encode(input)
 
-	for chunkSize := 10; chunkSize < inputSize; chunkSize += 10 {
-		precision := math.Ceil(float64(chunkSize) * bitsPerSymbol)
-		fmt.Printf("chunkSize = %v, precision = %v+\n", chunkSize, precision)
-	}
-}
-
-func PickOptimalPrecisionAndChunkSize(inputSize int, uniqueSymbolsCount uint, maxPrecision int) (uint, uint, error) {
-	bitsPerSymbol := math.Log2(float64(uniqueSymbolsCount))
-
-	// Try max possible chunk size under precision cap
-	chunkSize := int(float64(maxPrecision) / bitsPerSymbol)
-	if chunkSize > inputSize {
-		chunkSize = inputSize
-	}
-
-	precision := math.Ceil(float64(chunkSize) * bitsPerSymbol)
-
-	return uint(chunkSize), uint(precision), nil
-}
-
-const maxValue = 300
-const numsCount = 1000
-
-func readLogfile() []byte {
-	data, err := os.ReadFile("logfile.txt")
-	if err != nil {
-		log.Fatal(err)
-	}
-	return data
-}
-
-func saveLogfile(data []byte) {
-	file, err := os.OpenFile("logfile.compressed", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	if _, err := file.Write(data); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func main() {
-	// chunkSize, precision := 500, uint(3492) // 26.899999999999995%
-	// chunkSize, precision := 250, uint(1465) // 34.99999999999999%
-	// chunkSize, precision := 200, uint(1100) // 35.25%
-	// chunkSize, precision := 125, uint(598) // 37.199999999999996%
-	// chunkSize, precision := 100, uint(460) // 40.5%
-	// chunkSize, precision := 100, uint(442) // 40.5%
-	// chunkSize, precision := uint(50), uint(166) // 37%
-	// chunkSize, precision := 25, uint(57) // 30%
-	// chunkSize, precision := 20, uint(35) // 22.5%
-	// chunkSize, precision := 10, uint(35) // 22.5%
-
-	chunkSize, precision := 100, uint(500)
-
-	fmt.Printf("Run with chunkSize = %v, precision = %v\n", chunkSize, precision)
-
-	nums := utils.SeedByRatio(numsCount, maxValue, 0.95)
-	// nums := utils.SeedRandom(numsCount, maxValue)
-	sort.Ints(nums)
-
-	// for i := 0; i < len(nums)-50; i += 50 {
-	// 	fmt.Printf("%v = %v\n", i, nums[i:i+50])
-	// }
-
-	data, _ := serializeInts(nums)
-
-	// data := readLogfile()
-
-	compressor := mixed.NewCompressor()
-
-	fmt.Printf("-- COMPRESSION --\n")
 	compressed, err := compressor.Compress(data)
 	if err != nil {
-		log.Fatalf("failed to compress: %s", err)
-	}
-
-	compressedBytes := compressed.Bytes()
-	saveLogfile(compressedBytes)
-
-	for i := 0; i < len(compressedBytes)-50; i += 50 {
-		fmt.Printf("%v = %v\n", i, compressedBytes[i:i+50])
-	}
-
-	fmt.Printf("-- DECOMPRESSION --\n")
-	decompressed, err := compressor.Decompress(compressed)
-	if err != nil {
-		log.Fatalf("failed to decompress: %s", err)
-	}
-
-	fmt.Println("DONE")
-	// fmt.Println(decompressed)
-
-	fmt.Println("input = ", data)
-	fmt.Println("decompressed = ", decompressed)
-
-	if !SlicesEqual(data, decompressed) {
-		log.Fatal("slices are not equal")
+		return 0, err
 	}
 
 	originalSize := len(data)
-	compressedSize := len(compressedBytes)
+	compressedSize := len(compressed.Bytes())
 	compression := (1 - float64(compressedSize)/float64(originalSize)) * 100
 
-	fmt.Printf("compression: %v%%\n", compression)
+	return compression, nil
+}
+
+type seedInfo struct {
+	description string
+	seedFn      seed.SeedFn
+}
+
+func main() {
+	testsCount := 250
+
+	for seedType := range 4 {
+		for _, size := range []int{50, 100, 500, 1000, 10000} {
+			for _, maxValue := range []int{10, 50, 100, 300} {
+				if seedType == 0 && maxValue < 50 {
+					continue
+				}
+
+				var description string
+				var seedFn seed.SeedFn
+
+				switch seedType {
+				case 0:
+					description, seedFn = seed.SeedByRatio(size, maxValue, 0.96)
+				case 1:
+					description, seedFn = seed.SeedByRatio(size, maxValue, 0.9)
+				case 2:
+					description, seedFn = seed.SeedByRatio(size, maxValue, 0.7)
+				case 3:
+					description, seedFn = seed.SeedRandom(size, maxValue)
+				}
+
+				compression, err := Run(testsCount, seedFn, true)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				printRow(compression, description)
+			}
+		}
+	}
+
+	// Edge-case tests
+
+	for _, maxValue := range []int{10, 50, 100, 300} {
+		description, seedFn := seed.SeedEqually(3, maxValue)
+		compression, err := Run(testsCount, seedFn, false)
+		if err != nil {
+			log.Fatal(err)
+		}
+		printRow(compression, description)
+	}
+}
+
+func printRow(compression []float64, description string) {
+	fmt.Printf("| %10.6f%% | %10.6f%% | %10.6f%% | %v |\n", compression[0], compression[1], compression[2], description)
 }

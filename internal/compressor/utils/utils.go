@@ -1,82 +1,14 @@
 package utils
 
 import (
-	"math/rand"
+	"os"
 	"strconv"
-	"time"
 )
 
 type Frequency struct {
 	Num       int
 	Frequency int
 }
-
-func SeedRandom(count, maxValue int) []int {
-	src := rand.NewSource(time.Now().UnixNano())
-	rnd := rand.New(src)
-
-	input := make([]int, 0, count)
-	for range count {
-		input = append(input, rnd.Intn(maxValue-1)+1)
-	}
-
-	return input
-}
-
-func SeedEqually(count, maxValue int) []int {
-	input := make([]int, 0, count)
-	n := 1
-
-	for range count {
-		input = append(input, n)
-		n++
-		if n > maxValue {
-			n = 1
-		}
-	}
-
-	return input
-}
-
-func SeedByRatio(count, maxValue int, ratio float64) []int {
-	src := rand.NewSource(time.Now().UnixNano())
-	rnd := rand.New(src)
-
-	input := make([]int, 0, count)
-
-	mainPartSize := int(float64(count) * ratio)
-	randomPartSize := count - mainPartSize
-
-	mainPartMaxValue := int(float64(maxValue) * (float64(1) - ratio))
-
-	// Seed almost whole range with minimum diversity
-	for range mainPartSize {
-		input = append(input, rnd.Intn(mainPartMaxValue-1)+1)
-	}
-
-	// Other - random
-	for range randomPartSize {
-		input = append(input, rnd.Intn(maxValue-1)+1)
-	}
-
-	return input
-}
-
-// TODO: optimize
-// func RoundToPrecision(val, minValue, maxValue float64) float64 {
-// 	epsilon := math.Abs(maxValue - minValue)
-// 	if epsilon == 0 {
-// 		return val
-// 	}
-
-// 	decimalPlaces := int(math.Ceil(-math.Log10(epsilon)))
-// 	if decimalPlaces < 0 {
-// 		decimalPlaces = 0
-// 	}
-
-// 	factor := math.Pow(10, float64(decimalPlaces))
-// 	return math.Round(val*factor) / factor
-// }
 
 func ToASCII(str string) byte {
 	val, _ := strconv.Atoi(str)
@@ -135,4 +67,35 @@ func FindLastIndex[T comparable](source, target []T) int {
 	}
 
 	return i + 1
+}
+
+func SlicesEqual[T comparable](a, b []T) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func ReadLogfile() ([]byte, error) {
+	data, err := os.ReadFile("logfile.txt")
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func SaveLogfile(data []byte) error {
+	file, err := os.OpenFile("logfile.compressed", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.Write(data)
+	return err
 }
