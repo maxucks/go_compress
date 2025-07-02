@@ -10,7 +10,7 @@ const MAX_VALUE = 16255
 
 func TestIntOverflowError(t *testing.T) {
 	var buf bytes.Buffer
-	var encoder ASCIIEncoder
+	var encoder ASCII
 
 	value := MAX_VALUE + 1
 
@@ -37,7 +37,7 @@ func TestIntRandom(t *testing.T) {
 
 func testIntSuccess(t *testing.T, value int) {
 	var buf bytes.Buffer
-	var encoder ASCIIEncoder
+	var encoder ASCII
 
 	err := encoder.EncodeInt(&buf, value)
 	if err != nil {

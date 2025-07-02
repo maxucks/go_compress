@@ -28,7 +28,7 @@ func NewCompressor(options ...ArithmeticCompressorOption) *ArithmeticCompressor 
 	cfg.apply(options)
 
 	return &ArithmeticCompressor{
-		encoder: &encoder.VLQEncoder{},
+		encoder: &encoder.CompactVLQ{},
 		cfg:     cfg,
 	}
 }

@@ -12,9 +12,9 @@ const ASCII_MAX_VAL = 127
 // This encoder is my own packing bits implementation
 // Packs any number (up to 16256) representing as either 1 or 2 bytes of ASCII code into buffer
 // It's pretty restricted and I used it for testing
-type ASCIIEncoder struct{}
+type ASCII struct{}
 
-func (s *ASCIIEncoder) EncodeInt(buf *bytes.Buffer, num int) error {
+func (s *ASCII) EncodeInt(buf *bytes.Buffer, num int) error {
 	chunksCount := num / ASCII_MAX_VAL
 	if chunksCount > ASCII_MAX_VAL {
 		return errors.New("too big number")
@@ -31,7 +31,7 @@ func (s *ASCIIEncoder) EncodeInt(buf *bytes.Buffer, num int) error {
 	return nil
 }
 
-func (s *ASCIIEncoder) DecodeInt(buf *bytes.Buffer) (int, error) {
+func (s *ASCII) DecodeInt(buf *bytes.Buffer) (int, error) {
 	var num, chunksCount int
 
 	for {

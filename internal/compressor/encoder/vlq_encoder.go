@@ -5,9 +5,9 @@ import (
 	"errors"
 )
 
-type VLQEncoder struct{}
+type VLQ struct{}
 
-func (s *VLQEncoder) EncodeInt(buf *bytes.Buffer, num int) error {
+func (s *VLQ) EncodeInt(buf *bytes.Buffer, num int) error {
 	for {
 		b := byte(num & 0x7F)
 		num >>= 7
@@ -19,7 +19,7 @@ func (s *VLQEncoder) EncodeInt(buf *bytes.Buffer, num int) error {
 	}
 }
 
-func (s *VLQEncoder) DecodeInt(buf *bytes.Buffer) (int, error) {
+func (s *VLQ) DecodeInt(buf *bytes.Buffer) (int, error) {
 	var result int
 	var shift uint
 

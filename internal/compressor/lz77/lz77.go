@@ -20,7 +20,7 @@ func NewCompressor(options ...LZ77CompressorOption) *LZ77Compressor {
 
 	return &LZ77Compressor{
 		cfg:     cfg,
-		encoder: &encoder.VLQEncoder{},
+		encoder: &encoder.CompactVLQ{},
 	}
 }
 

@@ -18,7 +18,7 @@ func NewCompressor() *MixedCompressor {
 		main: lz77.NewCompressor(
 			lz77.SetBuffer(64),
 		),
-		postprocess: haffman.NewHuffmanCompressor(),
+		postprocess: haffman.NewCompressor(),
 	}
 }
 
